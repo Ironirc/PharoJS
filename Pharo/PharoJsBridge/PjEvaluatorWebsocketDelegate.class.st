@@ -63,9 +63,9 @@ PjEvaluatorWebsocketDelegate class >> includeClasses [
 PjEvaluatorWebsocketDelegate class >> initialize [
 	<javascript:
 	'"JSON Math WebSocket console global document history location navigator screen window localStorage module process require".split(" ").forEach(function(s){
-		if(global[s]){
-			try{Object.defineProperty(global[s],"$_jsName",{value:s,writable:true})}catch(s){};
-	}})'>
+		try{if(global[s]){
+			Object.defineProperty(global[s],"$_jsName",{value:s,writable:true})}}catch(s){};
+	})'>
 ]
 
 { #category : #'as yet unclassified' }
@@ -155,8 +155,7 @@ PjEvaluatorWebsocketDelegate >> connectTo: urlString [
 
 { #category : #'socket behavior' }
 PjEvaluatorWebsocketDelegate >> doCallBack: aResult [
-	webSocket
-		send: (PjMessageResponse newWithContents: aResult) asPhxJsonString.
+	webSocket send: aResult.
 	self logSent: aResult
 ]
 
@@ -235,11 +234,15 @@ PjEvaluatorWebsocketDelegate >> onError: event [
 
 { #category : #'socket behavior' }
 PjEvaluatorWebsocketDelegate >> onMessage: event [
-	| jsonString msg |
-	jsonString := event data.
-	msg := PhxJsonReader readFromString: jsonString.
-	self logReceived: msg logDescription.
-	msg evaluateInContext: self newMessageContext
+	| aString|
+	aString := event data.
+	self logReceived: aString.
+	aString first = ':' ifTrue: [ ^ self command: aString ].
+	self timeout: [
+		aString := self eval: aString.
+		self isClosed ifFalse: [webSocket send: aString].
+		self logSent: aString
+	] for: 0
 ]
 
 { #category : #'socket behavior' }

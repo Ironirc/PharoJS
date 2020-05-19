@@ -129,6 +129,26 @@ PjBridge >> appClass: aPharoJsAppClass [
 
 ]
 
+{ #category : #public }
+PjBridge >> asyncEval: smalltalkString withResultDo: singleArgBlock [
+	| javaScriptString |
+	javaScriptString := self convertToJs: smalltalkString.
+	self asyncEvalJavascript: javaScriptString withResultDo: singleArgBlock
+]
+
+{ #category : #public }
+PjBridge >> asyncEvalJavascript: javaScriptString withResultDo: singleArgBlock [
+	self sendMessage: javaScriptString.
+	[
+	self 
+		when: [self isSyncDataAvailable] 
+		do: [self handOffResult: singleArgBlock] 
+		onTimeOutDo: [ ^ PjJavascriptError signal: 'Time Out! No response received' ]
+		timeOutDuration: self timeout.
+	] fork.
+
+]
+
 { #category : #'closure handling' }
 PjBridge >> blockClosure: aBlockClosure [
 	<PhxTicket: 'T#000322' name: 'Refactoring ParoJs PjBridge'>
@@ -199,11 +219,9 @@ PjBridge >> deleteBlockClosure: aBlockClosure [
 { #category : #'bridge handling' }
 PjBridge >> deleteJsValue: jsName [
 	"Called by proxy finalizer see methode PjProxy>>jsName:onBridge:"
-
-	self proxies removeKey: jsName ifAbsent: [  ].
-	self isServerStopped
-		ifTrue: [ ^ self ].
-	self sendMessage: (PjMessageDeleteGlobalVar newForVarName: jsName).
+	self proxies removeKey: jsName ifAbsent: [ ].
+	self isServerStopped ifTrue: [ ^self ].
+	self sendMessage: ':-',jsName.
 	^ proxies
 ]
 
@@ -230,20 +248,9 @@ PjBridge >> evalBlock: aBlock [
 
 { #category : #public }
 PjBridge >> evalJavascript: javaScriptString [
-	| msg |
-	self isConnected
-		ifFalse: [ ^ nil ].
-	msg := PjMessageEvaluate newWithContents: javaScriptString.
-	self sendMessage: msg.
-	self
-		when: [ self isConnected
-				ifFalse: [ ^ self ].
-			self isIncomingMessageAvailable ]
-		do: [ self handOffResult: [ :val | ^ val ] ]
-		onTimeOutDo: [ ^ PjJavascriptError
-				signal: 'no response after ' , self timeout printString ]
-		timeOutDuration: self timeout.
-	^ self
+	self isConnected ifFalse: [ ^ nil ].
+	self sendMessage: javaScriptString.
+	^ self evalGetResult
 ]
 
 { #category : #public }
@@ -278,6 +285,12 @@ PjBridge >> evalResponseMessage: aPjMessage [
 	stonString := aPjMessage contents.
 	self server logSocketRead: stonString.
 	^ self evalResult: stonString parsed: (PjSTONReader from: stonString)
+]
+
+{ #category : #evaluating }
+PjBridge >> evalResult: aString [
+	self server logSocketRead: aString.
+	^ self evalResult: aString parsed: (PjSTONReader from: aString)
 ]
 
 { #category : #evaluating }
@@ -470,15 +483,18 @@ PjBridge >> proxies [
 PjBridge >> resetClient [
 	| oldWebSocket |
 	oldWebSocket := self webSocket.
-	self sendMessage: PjMessageReload new.
+	self sendMessage: self websocketDelegateClassName, '.', transpiler pharoJsSelectorPrefix, 'reload_(true)'.
 	self resetProxies.
 	self client reset.
-	self
-		when: [ self webSocket ~~ oldWebSocket ]
-		do: [ oldWebSocket close ]
-		onTimeOutDo: [ self error: 'Client did NOT reconnect!' ]
+	self 
+		when: [self webSocket ~~ oldWebSocket] 
+		do: [
+			oldWebSocket close.
+		] 
+		onTimeOutDo: [
+			self error: 'Client did NOT reconnect!']
 		timeOutDuration: self client startTimeout.
-	self waitForClientToStart
+
 ]
 
 { #category : #initialization }
@@ -503,15 +519,13 @@ PjBridge >> scheduleCallback: aBlock [
 ]
 
 { #category : #activity }
-PjBridge >> sendMessage: aMessage [
-"	| msg |
-	msg := PjMessage new.
-	msg contents: aString."
-	self
-		when: [ self isConnected ]
-		do: [ self webSocket sendMessage: aMessage asPhxJsonString.
-			self server logSocketWritten: aMessage logDescription ]
-		onTimeOutDo: [ self inform: 'WebSocket is NOT avaialable' ]
+PjBridge >> sendMessage: aString [
+	self 
+		when: [self isConnected] 
+		do: [
+			self webSocket sendMessage: aString.
+			self server logSocketWritten: aString] 
+		onTimeOutDo: [ self inform: 'WebSocket is NOT avaialble' ]
 		timeOutDuration: 100 milliSeconds
 ]
 
@@ -586,16 +600,10 @@ PjBridge >> startOn: portNumber title: title [
 
 { #category : #public }
 PjBridge >> startWithoutWaitingForClient [
-	| attempts |
 	self isServerStarted
 		ifTrue: [ ^ self ].
 	self server start.
-	attempts := 0.
-	[ self isServerStarted and: [ self isServerStartedExtraCheck ] ]
-		whileFalse: [ self server stop. self server start.
-			attempts := attempts + 1.
-			attempts > 10
-				ifTrue: [ self error: 'Server not ready after 10 attempts' ] ].
+	self waitForServerToStart.
 	self client start
 ]
 
