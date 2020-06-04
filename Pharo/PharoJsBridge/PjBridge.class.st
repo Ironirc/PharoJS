@@ -110,11 +110,6 @@ PjBridge class >> openOn: portNumber title: title [
 		yourself
 ]
 
-{ #category : #'closure handling' }
-PjBridge class >> pollFor: aTime orUntil: aBlock [
-	^ self bridge pollFor: aTime orUntil: aBlock
-]
-
 { #category : #'instance creation' }
 PjBridge class >> startOn: portNumber title: title [
 	^  (self bridgeForAppClass: self defaultApp)
@@ -136,18 +131,26 @@ PjBridge >> appClass: aPharoJsAppClass [
 
 { #category : #'closure handling' }
 PjBridge >> blockClosure: aBlockClosure [
-	^ self blockClosures at: aBlockClosure ifAbsentPut: [
-		| proxy thisArg |
-		(aBlockClosure isKindOf: BlockClosure) ifFalse: [
-				^ PjJavascriptError signal: 'Must be a BlockClosure' ].
-		aBlockClosure hasMethodReturn ifTrue: [
-				^ PjJavascriptError signal: 'Block cannot have return' ].
-		thisArg := aBlockClosure argumentNames findFirst: [ : name | name='this' ].
-		proxy := self evalJavascript: self websocketDelegateClassName,
-			'.', transpiler pharoJsSelectorPrefix, 'default().', transpiler pharoJsSelectorPrefix, 'makeBlockClosureProxy_(',thisArg asString,')'.
-		proxy closure: aBlockClosure.
-		proxy
-	]
+	<PhxTicket: 'T#000322' name: 'Refactoring ParoJs PjBridge'>
+	^ self blockClosures
+		at: aBlockClosure
+		ifAbsentPut: [ | proxy thisArg includeEventTarget|
+			(aBlockClosure isKindOf: BlockClosure)
+				ifFalse: [ ^ PjJavascriptError signal: 'Must be a BlockClosure' ].
+			aBlockClosure hasMethodReturn
+				ifTrue: [ ^ PjJavascriptError signal: 'Block cannot have return' ].
+			thisArg := aBlockClosure argumentNames
+				findFirst: [ :name | name = 'this' ].
+			includeEventTarget := thisArg > 0.
+			proxy := self
+				evalJavascript:
+					self websocketDelegateClassName , '.'
+						, transpiler pharoJsSelectorPrefix , 'default().'
+						, transpiler pharoJsSelectorPrefix , 'makeBlockClosureProxy_('
+						, includeEventTarget asString , ')'.
+			proxy closure: aBlockClosure.
+			proxy ]
+		
 ]
 
 { #category : #'closure handling' }
@@ -223,17 +226,6 @@ PjBridge >> evalBlock: aBlock [
 
 ]
 
-{ #category : #evaluating }
-PjBridge >> evalGetResult [
-	self
-		when: [
-			self isConnected ifFalse: [ ^ self ].
-			self isSyncDataAvailable] 
-		do: [self handOffResult: [ : val | ^ val ]]
-		onTimeOutDo: [ ^ PjJavascriptError signal: 'no response after ',self timeout printString ]	
-		timeOutDuration: self timeout
-]
-
 { #category : #public }
 PjBridge >> evalJavascript: javaScriptString [
 	self isConnected ifFalse: [ ^ nil ].
@@ -262,6 +254,17 @@ PjBridge >> evalMessage: aMessage sentTo: receiverName [
 	jsMessage := PjJavascriptMessage receiverId: receiverName selector: aMessage selector arguments: aMessage arguments.
 	^self evalMessage: jsMessage
 
+]
+
+{ #category : #evaluating }
+PjBridge >> evalResponseMessage: aPjMessage [
+	| stonString |
+	(aPjMessage isKindOf: PjMessageSetClientId)
+		ifTrue: [ self client clientId: aPjMessage clientId.
+			^ self ].
+	stonString := aPjMessage contents.
+	self server logSocketRead: stonString.
+	^ self evalResult: stonString parsed: (PjSTONReader from: stonString)
 ]
 
 { #category : #public }
@@ -353,16 +356,26 @@ PjBridge >> initialize [
 
 ]
 
+{ #category : #activity }
+PjBridge >> isClientIdReceived [
+	self isIncomingMessageAvailable.
+	^ self client clientId notNil
+]
+
 { #category : #public }
 PjBridge >> isConnected [
 	self webSocket ifNil: [ ^false ].
 	^self webSocket isConnected
 ]
 
-{ #category : #activity }
-PjBridge >> isDataAvailable [
-	self isConnected ifFalse: [ ^false ].
-	^self webSocket stream isDataAvailable
+{ #category : #evaluating }
+PjBridge >> isIncomingMessageAvailable [
+	[ result == self and: [ self isWebSocketDataAvailable ] ]
+		whileTrue: [ | respMsg |
+			respMsg := PhxJsonReader readFromString: self webSocket readMessage.
+			result := self evalResponseMessage: respMsg ].
+	self executeAnyCallbacks.
+	^ result ~~ self
 ]
 
 { #category : #public }
@@ -376,17 +389,23 @@ PjBridge >> isServerStarted [
 ]
 
 { #category : #public }
+PjBridge >> isServerStartedExtraCheck [
+	^ (ZnClient new
+		timeout: 1;
+		ifFail: [ String new ];
+		get: 'http://localhost:' , self port asString , '/serverFingerPrint')
+		= self server fingerPrint
+]
+
+{ #category : #public }
 PjBridge >> isServerStopped [
 	^self isServerStarted not
 ]
 
-{ #category : #evaluating }
-PjBridge >> isSyncDataAvailable [
-	[result == self and: [self isDataAvailable]] whileTrue: [
-		result := self evalResult: (self webSocket readMessage).
-	].
-	self executeAnyCallbacks.
-	^ result ~~ self
+{ #category : #activity }
+PjBridge >> isWebSocketDataAvailable [
+	self isConnected ifFalse: [ ^false ].
+	^self webSocket stream isDataAvailable
 ]
 
 { #category : #public }
@@ -426,15 +445,6 @@ PjBridge >> openOn: portNumber title: title [
 	clientGenerator := self client codeGenerator.
 	title ifNotNil: [ clientGenerator titleString: title ].
 	self port: portNumber
-]
-
-{ #category : #public }
-PjBridge >> pollFor: aTime orUntil: aBlock [
-	self
-		when: [ aBlock value ifNotNil: [ : value | ^ value ] ifNil: [self isSyncDataAvailable]] 
-		do: [ self handOffResult: []]
-		onTimeOutDo: [ ^ aBlock value ]	
-		timeOutDuration: aTime
 ]
 
 { #category : #accessing }
@@ -638,7 +648,7 @@ PjBridge >> waitForClientToStart [
 { #category : #activity }
 PjBridge >> waitForClientToStartFor: time [
 	self 
-		when: [self isConnected] 
+		when: [self isConnected and: [self isClientIdReceived]] 
 		do: [^self] 
 		onTimeOutDo: [self error: 'Javascript interpreter NOT available']
 		timeOutDuration: time
