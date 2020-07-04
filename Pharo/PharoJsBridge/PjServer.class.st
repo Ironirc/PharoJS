@@ -79,6 +79,11 @@ PjServer >> favicon: jsString [
 	self delegate favicon: jsString
 ]
 
+{ #category : #accessing }
+PjServer >> fingerPrint [
+	^self delegate fingerPrint
+]
+
 { #category : #'request handling' }
 PjServer >> handleRequest: request forWebSocketOn: stream [
 	| acceptKey  response |
@@ -185,6 +190,13 @@ PjServer >> responseHeadersForKey: key [
 			yourself
 ]
 
+{ #category : #public }
+PjServer >> restart [
+<PhxTicket: 'T#000322' name: 'Refactoring ParoJs PjBridge'>
+	self stop.
+	super start
+]
+
 { #category : #'request handling' }
 PjServer >> serveConnectionOn: listeningSocket [
 	"We wait up to acceptWaitTimeout seconds for an incoming connection.
@@ -208,7 +220,12 @@ PjServer >> start [
 	candidatePort := self nextPortNumber.
 	usedPorts := (self class allInstances select: #isRunning thenCollect: #port) asSet.
 	[ usedPorts includes: candidatePort ] whileTrue: [candidatePort := self nextPortNumber].
-	self port: candidatePort.
+	self startOnPort: candidatePort
+]
+
+{ #category : #public }
+PjServer >> startOnPort: aPort [
+	self port: aPort.
 	super start
 ]
 

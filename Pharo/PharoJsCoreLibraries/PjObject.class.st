@@ -82,14 +82,19 @@ PjObject class >> nextIdentityHash [
 
 { #category : #proxy }
 PjObject class >> resultObject: result [
-	<jsGenerator: #resultObject_jsGenerator:>
-	
+<PhxTicket: 'T#000322' name: 'Refactoring ParoJs PjBridge'>
+	^ result ifNotNil: [ result proxyResponse ]
 ]
 
 { #category : #proxy }
 PjObject class >> resultObject_jsGenerator: transpiler [
+<PhxTicket: 'T#000322' name: 'Refactoring ParoJs PjBridge'>
+"Ivo: obsolete"
 	<pharoJsSkip>
-	^'if (result != undefined) return result.', transpiler pharoJsSelectorPrefix, 'proxyResponse();
+	^ 'if (result != undefined) return result.'
+		, transpiler pharoJsSelectorPrefix
+		,
+			'proxyResponse();
 		return null;'
 ]
 
@@ -318,16 +323,11 @@ PjObject >> printString [
 
 { #category : #proxy }
 PjObject >> proxyResponse [
-	<javascript:
-	'var name = this.$_jsName;
-	if (!name) {
-		Object.$Pj_counter = (Object.$Pj_counter||0)+1;
-		name = "$_"+Object.$Pj_counter;
-		global[name]=this;
-		try{Object.defineProperty(this,"$_jsName",{value:name,writable:true})}catch(e){}
-	}
-	return { remove : this.$PjProxyRemove , proxy : name}
-	'>
+	<PhxTicket: 'T#000322' name: 'Refactoring ParoJs PjBridge'>
+	| name |
+	name := PjProxyManager ensureObjectRegistered: self.
+	^ {('remove' -> (self instVarNamed: '$PjProxyRemove')).
+	('proxy' -> name)} asDictionary
 ]
 
 { #category : #'initialize-release' }
