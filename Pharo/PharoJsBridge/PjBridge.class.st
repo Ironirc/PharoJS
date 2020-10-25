@@ -3,7 +3,7 @@ A PjBridge is the facade that allows interacting (i.e. evaluting code) with a ja
 
 Example: 
 ""1) Start a bridge in a workspace""
-bridge := PjBridge startOn: 12345 title: 'Example'.
+bridge := PjBridge startOn: 12345.
 
 ""2) Open a web browser on http://localhost:12345""
 
@@ -45,14 +45,17 @@ Class {
 	#superclass : #Object,
 	#instVars : [
 		'server',
+		'communicationTrialsCount',
+		'result',
 		'timeout',
+		'callbacks',
+		'executingCallbacks',
 		'proxies',
 		'blockClosures',
 		'client',
 		'runOnPharo',
 		'shouldStartJsInterpreter',
-		'monitor',
-		'incomingMessageFrames'
+		'transpiler'
 	],
 	#category : #'PharoJsBridge-Kernel'
 }
@@ -131,6 +134,30 @@ PjBridge >> acceptIncomingMessageFromClient: aMessage [
 	monitor
 		critical: [ self incomingMessages add: aMessage.
 			monitor signal ]
+]
+
+{ #category : #'closure handling' }
+PjBridge >> blockClosure: aBlockClosure [
+	<PhxTicket: 'T#000322' name: 'Refactoring ParoJs PjBridge'>
+	^ self blockClosures
+		at: aBlockClosure
+		ifAbsentPut: [ | proxy thisArg includeEventTarget|
+			(aBlockClosure isKindOf: BlockClosure)
+				ifFalse: [ ^ PjJavascriptError signal: 'Must be a BlockClosure' ].
+			aBlockClosure hasMethodReturn
+				ifTrue: [ ^ PjJavascriptError signal: 'Block cannot have return' ].
+			thisArg := aBlockClosure argumentNames
+				findFirst: [ :name | name = 'this' ].
+			includeEventTarget := thisArg > 0.
+			proxy := self
+				evalJavascript:
+					self websocketDelegateClassName , '.'
+						, transpiler pharoJsSelectorPrefix , 'default().'
+						, transpiler pharoJsSelectorPrefix , 'makeBlockClosureProxy_('
+						, includeEventTarget asString , ')'.
+			proxy closure: aBlockClosure.
+			proxy ]
+		
 ]
 
 { #category : #'closure handling' }
@@ -257,6 +284,17 @@ PjBridge >> evalMessage: aMessage sentTo: receiverName [
 	^ self evalMessage: jsMessage
 ]
 
+{ #category : #evaluating }
+PjBridge >> evalResponseMessage: aPjMessage [
+	| stonString |
+	(aPjMessage isKindOf: PjMessageSetClientId)
+		ifTrue: [ self client clientId: aPjMessage clientId.
+			^ self ].
+	stonString := aPjMessage contents.
+	self server logSocketRead: stonString.
+	^ self evalResult: stonString parsed: (PjSTONReader from: stonString)
+]
+
 { #category : #activity }
 PjBridge >> executeCallbacksUntilDepletion [
 	[ self takeNextCallbackFromIncomingMessages
@@ -313,6 +351,7 @@ PjBridge >> initializeWithClient: aClient [
 
 { #category : #activity }
 PjBridge >> isClientIdReceived [
+	self isIncomingMessageAvailable.
 	^ self client clientId notNil
 ]
 
@@ -320,6 +359,16 @@ PjBridge >> isClientIdReceived [
 PjBridge >> isConnected [
 	self webSocket ifNil: [ ^false ].
 	^self webSocket isConnected
+]
+
+{ #category : #evaluating }
+PjBridge >> isIncomingMessageAvailable [
+	[ result == self and: [ self isWebSocketDataAvailable ] ]
+		whileTrue: [ | respMsg |
+			respMsg := PhxJsonReader readFromString: self webSocket readMessage.
+			result := self evalResponseMessage: respMsg ].
+	self executeAnyCallbacks.
+	^ result ~~ self
 ]
 
 { #category : #public }
@@ -333,8 +382,23 @@ PjBridge >> isServerStarted [
 ]
 
 { #category : #public }
+PjBridge >> isServerStartedExtraCheck [
+	^ (ZnClient new
+		timeout: 1;
+		ifFail: [ String new ];
+		get: 'http://localhost:' , self port asString , '/serverFingerPrint')
+		= self server fingerPrint
+]
+
+{ #category : #public }
 PjBridge >> isServerStopped [
 	^self server ifNil: [true] ifNotNil: [self server isStarted not]
+]
+
+{ #category : #activity }
+PjBridge >> isWebSocketDataAvailable [
+	self isConnected ifFalse: [ ^false ].
+	^self webSocket stream isDataAvailable
 ]
 
 { #category : #public }
@@ -600,12 +664,11 @@ PjBridge >> waitForClientToStart [
 
 { #category : #activity }
 PjBridge >> waitForClientToStartFor: time [
-	monitor
-		critical: [ monitor
-				waitUntil: [ self isClientIdReceived ]
-				maxMilliseconds: time asMilliSeconds ].
-	self isClientIdReceived
-		ifFalse: [ self error: 'Javascript interpreter NOT available' ]
+	self 
+		when: [self isConnected and: [self isClientIdReceived]] 
+		do: [^self] 
+		onTimeOutDo: [self error: 'Javascript interpreter NOT available']
+		timeOutDuration: time
 ]
 
 { #category : #activity }

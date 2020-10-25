@@ -33,6 +33,7 @@ PjBridgeClient >> bridge [
 
 { #category : #accessing }
 PjBridgeClient >> clientId [
+<PhxTicket: 'T#000322' name: 'Refactoring ParoJs PjBridge'>
 	^ clientId
 ]
 
@@ -104,8 +105,8 @@ PjBridgeClient >> pharoJsSelectorPrefix [
 
 { #category : #'initialization-release' }
 PjBridgeClient >> reset [
-	self initializeWithAppClass: self appClass.
-	self initializeWithBridge:  self bridge.
+	self appClass: self appClass.
+	self bridge: self bridge.
 	self clientId: nil.
 	"Ensure transpiler is reset correctly.
 	Transpiler is driven by exporter"

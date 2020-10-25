@@ -195,6 +195,13 @@ PjServer >> responseHeadersForKey: key [
 			yourself
 ]
 
+{ #category : #public }
+PjServer >> restart [
+<PhxTicket: 'T#000322' name: 'Refactoring ParoJs PjBridge'>
+	self stop.
+	super start
+]
+
 { #category : #'request handling' }
 PjServer >> serveConnectionOn: listeningSocket [
 	"We wait up to acceptWaitTimeout seconds for an incoming connection.
@@ -215,9 +222,9 @@ PjServer >> serveConnectionOn: listeningSocket [
 { #category : #public }
 PjServer >> start [
 	| candidatePort usedPorts |
-	usedPorts := self class portsCurrentlyInUse.
-	[ candidatePort := self nextPortNumber.
-	usedPorts includes: candidatePort ] whileTrue.
+	candidatePort := self nextPortNumber.
+	usedPorts := (self class allInstances select: #isRunning thenCollect: #port) asSet.
+	[ usedPorts includes: candidatePort ] whileTrue: [candidatePort := self nextPortNumber].
 	self startOnPort: candidatePort
 ]
 

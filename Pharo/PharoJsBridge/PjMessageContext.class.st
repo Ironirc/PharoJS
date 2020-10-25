@@ -4,7 +4,7 @@ Class {
 	#instVars : [
 		'websocketDelegate'
 	],
-	#category : #'PharoJsBridge-Messages'
+	#category : #'PharoJsBridge-Proxy'
 }
 
 { #category : #accessing }

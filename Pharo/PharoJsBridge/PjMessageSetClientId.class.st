@@ -1,10 +1,10 @@
 Class {
 	#name : #PjMessageSetClientId,
-	#superclass : #PjMessageC2s,
+	#superclass : #PjMessage,
 	#instVars : [
 		'clientId'
 	],
-	#category : #'PharoJsBridge-Messages'
+	#category : #'PharoJsBridge-Proxy'
 }
 
 { #category : #accessing }

@@ -80,6 +80,24 @@ PjObject class >> nextIdentityHash [
 	^ nextIdentityHash := (nextIdentityHash ifNil: [12345]) hashMultiply
 ]
 
+{ #category : #proxy }
+PjObject class >> resultObject: result [
+<PhxTicket: 'T#000322' name: 'Refactoring ParoJs PjBridge'>
+	^ result ifNotNil: [ result proxyResponse ]
+]
+
+{ #category : #proxy }
+PjObject class >> resultObject_jsGenerator: transpiler [
+<PhxTicket: 'T#000322' name: 'Refactoring ParoJs PjBridge'>
+"Ivo: obsolete"
+	<pharoJsSkip>
+	^ 'if (result != undefined) return result.'
+		, transpiler pharoJsSelectorPrefix
+		,
+			'proxyResponse();
+		return null;'
+]
+
 { #category : #'dictionary emulation' }
 PjObject class >> valuesDo_jsGenerator: transpiler [
 	<pharoJsSkip>
@@ -305,14 +323,11 @@ PjObject >> printString [
 
 { #category : #proxy }
 PjObject >> proxyResponse [
-	<PjTodo: 'not sure if proxyResponse is a good name'>
-	| assoc p |
-	assoc := PjProxyManager ensureObjectRegistered: self.
-	p := PjProxyInfo new.
-	p oid: assoc key.
-	p remove: (self instVarNamed: '$PjProxyRemove').
-	p globalName: assoc value.
-	^ p
+	<PhxTicket: 'T#000322' name: 'Refactoring ParoJs PjBridge'>
+	| name |
+	name := PjProxyManager ensureObjectRegistered: self.
+	^ {('remove' -> (self instVarNamed: '$PjProxyRemove')).
+	('proxy' -> name)} asDictionary
 ]
 
 { #category : #'initialize-release' }

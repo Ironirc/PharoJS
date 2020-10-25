@@ -1,10 +1,10 @@
 Class {
 	#name : #PjMessageDeleteGlobalVar,
-	#superclass : #PjMessageS2c,
+	#superclass : #PjMessage,
 	#instVars : [
 		'varName'
 	],
-	#category : #'PharoJsBridge-Messages'
+	#category : #'PharoJsBridge-Proxy'
 }
 
 { #category : #'as yet unclassified' }
@@ -16,7 +16,6 @@ PjMessageDeleteGlobalVar class >> newForVarName: jsName [
 
 { #category : #public }
 PjMessageDeleteGlobalVar >> evaluateInContext: aMessageContext [
-	<PjTodo: 'should use PjProxyInfo'>
 	PjProxyManager deleteGlobalVarNamed: self varName
 ]
 
@@ -26,8 +25,7 @@ PjMessageDeleteGlobalVar >> logDescription [
 		streamContents: [ :ws | 
 			ws nextPutAll: self class name.
 			ws nextPutAll: ' id: '.
-			ws
-				nextPutAll: (self id ifNil: [ '-' ] ifNotNil: [ self id printString ]).
+			ws nextPutAll: self id printString.
 			ws nextPutAll: ' varName: '.
 			ws nextPutAll: self varName ]
 ]
